@@ -140,7 +140,8 @@ def main(args):
                 'relu',
                 args.dropout,
                 )
-    model.initialize(mx.init.Xavier(), ctx=ctx)
+    model.initialize(mx.init.MSRAPrelu(), ctx=ctx)
+    # model.initialize(mx.init.Xavier(), ctx=ctx)
     n_train_samples = train_mask.sum().asscalar()
     loss_fcn = gluon.loss.SoftmaxCELoss()
 
