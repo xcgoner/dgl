@@ -30,4 +30,4 @@ watchfile=$basename.log
 # > $logfile
 
 
-DGLBACKEND=mxnet python /homes/cx2/gcn/dgl-gcn/gcn/gcn_edge.py --dataset "cora" --lr 0.01 --n-epochs 200 --n-layers 2 --normalization 'sym' --self-loop 2>&1 | tee $watchfile
+DGLBACKEND=mxnet python /homes/cx2/gcn/dgl-gcn/gcn/gcn_edge.py --dataset "cora" --lr 0.01 --n-epochs 200 --n-layers 8 --normalization 'sym' --self-loop 2>&1 | tee $watchfile
