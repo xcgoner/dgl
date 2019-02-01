@@ -32,7 +32,7 @@ class EGCNLayer(gluon.Block):
     def forward(self, h):
         self.g.ndata['h'] = h * self.g.ndata['out_norm']
         # somewhat hacky, who cares
-        egcn_message = lambda edges: {'m' : mx.nd.concat(self.edense(mx.nd.concat(edges.dst['h'], edges.src['h'], dim=1)), edges.src['h'], dim=1)}
+        egcn_message = lambda edges: {'m' : mx.nd.concat(mx.nd.Dropout(self.edense(mx.nd.concat(edges.dst['h'], edges.src['h'], dim=1)), p=self.dropout), edges.src['h'], dim=1)}
         self.g.update_all(egcn_message, 
                           fn.sum(msg='m', out='accum'))
         accum = self.g.ndata.pop('accum')
@@ -73,9 +73,12 @@ class EGCN(gluon.Block):
 
 
 def evaluate(model, features, labels, mask):
-    pred = model(features).argmax(axis=1)
-    accuracy = ((pred == labels) * mask).sum() / mask.sum().asscalar()
-    return accuracy.asscalar()
+    pred = model(features)
+    loss_fcn = gluon.loss.SoftmaxCELoss()
+    loss = loss_fcn(pred, labels, mx.nd.expand_dims(mask, 1))
+    loss = loss.sum() / mask.sum().asscalar()
+    accuracy = ((pred.argmax(axis=1) == labels) * mask).sum() / mask.sum().asscalar()
+    return loss.asscalar(), accuracy.asscalar()
 
 
 def main(args):
@@ -117,7 +120,7 @@ def main(args):
     val_mask = val_mask.as_in_context(ctx)
     test_mask = test_mask.as_in_context(ctx)
 
-    # create EGCN model
+    # create GCN model
     g = DGLGraph(data.graph)
     # normalization
     in_degs = g.in_degrees().astype('float32')
@@ -148,6 +151,7 @@ def main(args):
 
     # initialize graph
     dur = []
+    best_val_loss = 999999
     for epoch in range(args.n_epochs):
         if epoch >= 3:
             t0 = time.time()
@@ -162,14 +166,18 @@ def main(args):
 
         if epoch >= 3:
             dur.append(time.time() - t0)
-            acc = evaluate(model, features, labels, val_mask)
-            print("Epoch {:05d} | Time(s) {:.4f} | Loss {:.4f} | Accuracy {:.4f} | "
+            val_loss, val_acc = evaluate(model, features, labels, val_mask)
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
+                model.save_parameters(args.save)
+            print("Epoch {:05d} | Time(s) {:.4f} | Val loss {:.4f} | Val accuracy {:.4f} | "
                   "ETputs(KTEPS) {:.2f}". format(
-                epoch, np.mean(dur), loss.asscalar(), acc, n_edges / np.mean(dur) / 1000), flush=True)
+                epoch, np.mean(dur), val_loss, val_acc, n_edges / np.mean(dur) / 1000), flush=True)
 
     # test set accuracy
-    acc = evaluate(model, features, labels, test_mask)
-    print("Test accuracy {:.2%}".format(acc), flush=True)
+    model.load_parameters(args.save)
+    test_loss, test_acc = evaluate(model, features, labels, test_mask)
+    print("Test loss {:.4f} | Test accuracy {:.2%}".format(test_loss, test_acc), flush=True)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='EGCN')
@@ -193,6 +201,8 @@ if __name__ == '__main__':
             help="graph self-loop (default=False)")
     parser.add_argument("--weight-decay", type=float, default=5e-4,
             help="Weight for L2 loss")
+    parser.add_argument("--save", type=str,
+            help="path for the best model")            
     args = parser.parse_args()
 
     print(args, flush=True)

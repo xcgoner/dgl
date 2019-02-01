@@ -20,12 +20,14 @@ export I_MPI_HYDRA_BOOTSTRAP_EXEC=pbs_tmrsh
 export KMP_AFFINITY=granularity=fine,compact,1,0;
 
 
-basename=/homes/cx2/gcn/dgl-gcn/gcn/results/exp_script_2
+basename=/homes/cx2/gcn/dgl-gcn/gcn/results/exp_script_3
 
 watchfile=$basename.log
 
 
-modelfile=$basename.params
+# logfile=/homes/cx2/federated/results/exp_unbalanced_lr_15_reg_000.txt
+
+# > $logfile
 
 
-DGLBACKEND=mxnet python /homes/cx2/gcn/dgl-gcn/gcn/gcn_edge.py --save $modelfile --dataset "cora" --lr 0.01 --n-epochs 200 --n-layers 2 --n-hidden 64 --dropout 0.6 --normalization 'sym' --self-loop 2>&1 | tee $watchfile
+DGLBACKEND=mxnet python /homes/cx2/gcn/dgl-gcn/gcn/gcn_batch.py --dataset "cora" --lr 0.01 --n-epochs 200 --n-layers 2 --normalization 'sym' --self-loop 2>&1 | tee $watchfile

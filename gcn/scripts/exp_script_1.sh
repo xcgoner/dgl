@@ -25,9 +25,7 @@ basename=/homes/cx2/gcn/dgl-gcn/gcn/results/exp_script_1
 watchfile=$basename.log
 
 
-# logfile=/homes/cx2/federated/results/exp_unbalanced_lr_15_reg_000.txt
-
-# > $logfile
+modelfile=$basename.params
 
 
-DGLBACKEND=mxnet python /homes/cx2/gcn/dgl-gcn/gcn/gcn_concat.py --dataset "cora" --lr 0.01 --n-epochs 200 --n-layers 2 --normalization 'sym' --self-loop 2>&1 | tee $watchfile
+DGLBACKEND=mxnet python /homes/cx2/gcn/dgl-gcn/gcn/gcn_concat.py --save $modelfile --dataset "cora" --lr 0.01 --n-epochs 200 --n-layers 2 --n-hidden 64 --normalization 'sym' --self-loop 2>&1 | tee $watchfile
