@@ -2,8 +2,10 @@
 Semi-Supervised Classification with Graph Convolutional Networks
 Paper: https://arxiv.org/abs/1609.02907
 Code: https://github.com/tkipf/gcn
-GCN with batch processing
+EGCN with batch processing
 """
+import os
+os.environ["MXNET_USE_OPERATOR_TUNING"] = "0"
 import argparse
 import numpy as np
 import time
@@ -14,21 +16,24 @@ import dgl.function as fn
 from dgl import DGLGraph
 from dgl.data import register_data_args, load_data
 
-
-class GCNLayer(gluon.Block):
+class EGCNLayer(gluon.Block):
     def __init__(self,
                  g,
                  out_feats,
                  activation,
                  dropout):
-        super(GCNLayer, self).__init__()
+        super(EGCNLayer, self).__init__()
         self.g = g
         self.dense = gluon.nn.Dense(out_feats, activation)
+        self.edense = gluon.nn.Dense(out_feats, activation)
         self.dropout = dropout
+
 
     def forward(self, h):
         self.g.ndata['h'] = h * self.g.ndata['out_norm']
-        self.g.update_all(fn.copy_src(src='h', out='m'),
+        # somewhat hacky, who cares
+        egcn_message = lambda edges: {'m' : mx.nd.concat(self.edense(mx.nd.concat(edges.dst['h'], edges.src['h'], dim=1)), edges.src['h'], dim=1)}
+        self.g.update_all(egcn_message, 
                           fn.sum(msg='m', out='accum'))
         accum = self.g.ndata.pop('accum')
         accum = self.dense(accum * self.g.ndata['in_norm'])
@@ -39,7 +44,7 @@ class GCNLayer(gluon.Block):
         return h
 
 
-class GCN(gluon.Block):
+class EGCN(gluon.Block):
     def __init__(self,
                  g,
                  n_hidden,
@@ -47,12 +52,12 @@ class GCN(gluon.Block):
                  n_layers,
                  activation,
                  dropout):
-        super(GCN, self).__init__()
+        super(EGCN, self).__init__()
         self.inp_layer = gluon.nn.Dense(n_hidden, activation)
         self.dropout = dropout
         self.layers = gluon.nn.Sequential()
         for i in range(n_layers):
-            self.layers.add(GCNLayer(g, n_hidden, activation, dropout))
+            self.layers.add(EGCNLayer(g, n_hidden, activation, dropout))
         self.out_layer = gluon.nn.Dense(n_classes)
 
 
@@ -97,7 +102,7 @@ def main(args):
           (n_edges, n_classes,
               train_mask.sum().asscalar(),
               val_mask.sum().asscalar(),
-              test_mask.sum().asscalar()))
+              test_mask.sum().asscalar()), flush=True)
 
     if args.gpu < 0:
         cuda = False
@@ -112,7 +117,7 @@ def main(args):
     val_mask = val_mask.as_in_context(ctx)
     test_mask = test_mask.as_in_context(ctx)
 
-    # create GCN model
+    # create EGCN model
     g = DGLGraph(data.graph)
     # normalization
     in_degs = g.in_degrees().astype('float32')
@@ -125,19 +130,19 @@ def main(args):
     g.ndata['in_norm'] = mx.nd.expand_dims(in_norm, 1)
     g.ndata['out_norm'] = mx.nd.expand_dims(out_norm, 1)
 
-    model = GCN(g,
+    model = EGCN(g,
                 args.n_hidden,
                 n_classes,
                 args.n_layers,
                 'relu',
                 args.dropout,
                 )
-    model.initialize(ctx=ctx)
+    model.initialize(mx.init.Xavier(), ctx=ctx)
     n_train_samples = train_mask.sum().asscalar()
     loss_fcn = gluon.loss.SoftmaxCELoss()
 
     # use optimizer
-    print(model.collect_params())
+    print(model.collect_params(), flush=True)
     trainer = gluon.Trainer(model.collect_params(), 'adam',
             {'learning_rate': args.lr, 'wd': args.weight_decay})
 
@@ -160,14 +165,14 @@ def main(args):
             acc = evaluate(model, features, labels, val_mask)
             print("Epoch {:05d} | Time(s) {:.4f} | Loss {:.4f} | Accuracy {:.4f} | "
                   "ETputs(KTEPS) {:.2f}". format(
-                epoch, np.mean(dur), loss.asscalar(), acc, n_edges / np.mean(dur) / 1000))
+                epoch, np.mean(dur), loss.asscalar(), acc, n_edges / np.mean(dur) / 1000), flush=True)
 
     # test set accuracy
     acc = evaluate(model, features, labels, test_mask)
-    print("Test accuracy {:.2%}".format(acc))
+    print("Test accuracy {:.2%}".format(acc), flush=True)
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='GCN')
+    parser = argparse.ArgumentParser(description='EGCN')
     register_data_args(parser)
     parser.add_argument("--dropout", type=float, default=0.5,
             help="dropout probability")
@@ -190,6 +195,6 @@ if __name__ == '__main__':
             help="Weight for L2 loss")
     args = parser.parse_args()
 
-    print(args)
+    print(args, flush=True)
 
     main(args)
