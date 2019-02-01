@@ -4,6 +4,8 @@ Paper: https://arxiv.org/abs/1609.02907
 Code: https://github.com/tkipf/gcn
 GCN with batch processing
 """
+import os
+os.environ["MXNET_USE_OPERATOR_TUNING"] = "0"
 import argparse
 import numpy as np
 import time
@@ -97,7 +99,7 @@ def main(args):
           (n_edges, n_classes,
               train_mask.sum().asscalar(),
               val_mask.sum().asscalar(),
-              test_mask.sum().asscalar()))
+              test_mask.sum().asscalar()), flush=True)
 
     if args.gpu < 0:
         cuda = False
@@ -137,7 +139,7 @@ def main(args):
     loss_fcn = gluon.loss.SoftmaxCELoss()
 
     # use optimizer
-    print(model.collect_params())
+    print(model.collect_params(), flush=True)
     trainer = gluon.Trainer(model.collect_params(), 'adam',
             {'learning_rate': args.lr, 'wd': args.weight_decay})
 
@@ -160,11 +162,11 @@ def main(args):
             acc = evaluate(model, features, labels, val_mask)
             print("Epoch {:05d} | Time(s) {:.4f} | Loss {:.4f} | Accuracy {:.4f} | "
                   "ETputs(KTEPS) {:.2f}". format(
-                epoch, np.mean(dur), loss.asscalar(), acc, n_edges / np.mean(dur) / 1000))
+                epoch, np.mean(dur), loss.asscalar(), acc, n_edges / np.mean(dur) / 1000), flush=True)
 
     # test set accuracy
     acc = evaluate(model, features, labels, test_mask)
-    print("Test accuracy {:.2%}".format(acc))
+    print("Test accuracy {:.2%}".format(acc), flush=True)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='GCN')
@@ -190,6 +192,6 @@ if __name__ == '__main__':
             help="Weight for L2 loss")
     args = parser.parse_args()
 
-    print(args)
+    print(args, flush=True)
 
     main(args)
