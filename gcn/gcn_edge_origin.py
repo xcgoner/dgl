@@ -51,8 +51,8 @@ class EGCNLayer(gluon.Block):
     def forward(self, h):
         self.g.ndata['h'] = h
         # somewhat hacky, who cares
-        # egcn_message = lambda edges: {'m' : mx.nd.Dropout(self.edense(mx.nd.concat(edges.dst['h'], edges.src['h'], dim=1)), p=self.dropout)}
-        egcn_message = lambda edges: {'m' : mx.nd.concat(mx.nd.Dropout(self.edense(mx.nd.concat(edges.dst['h'], edges.src['h'], dim=1)), p=self.dropout), edges.src['h'], dim=1) * edges.src['out_norm']}
+        # egcn_message = lambda edges: {'m' : mx.nd.Dropout(self.edense(mx.nd.concat(edges.dst['h'], edges.src['h'], dim=1) * edges.src['out_norm']), p=self.dropout)}
+        egcn_message = lambda edges: {'m' : mx.nd.concat(mx.nd.Dropout(self.edense(mx.nd.concat(edges.dst['h'], edges.src['h'], dim=1) * edges.src['out_norm']), p=self.dropout), edges.src['h'] * edges.src['out_norm'], dim=1)}
         # egcn_message = lambda edges: {'m' : mx.nd.concat(mx.nd.Dropout(self.edense(mx.nd.subtract(edges.dst['h'], edges.src['h'])), p=self.dropout), edges.src['h'], dim=1)}
         self.g.update_all(egcn_message, 
                           fn.sum(msg='m', out='accum'))
