@@ -28,4 +28,4 @@ watchfile=$basename.log
 modelfile=$basename.params
 
 
-DGLBACKEND=mxnet python /homes/cx2/gcn/dgl-gcn/gcn/gcn_edge_origin.py --save $modelfile --dataset "cora" --lr 0.001 --n-epochs 400 --n-layers 2 --n-hidden 64 --dropout 0.5 --normalization 'left' 2>&1 | tee $watchfile
+DGLBACKEND=mxnet python /homes/cx2/gcn/dgl-gcn/gcn/gcn_edge_origin.py --save $modelfile --dataset "cora" --lr 0.005 --n-epochs 200 --n-layers 2 --n-hidden 64 --dropout 0.8 --normalization 'sym' --self-loop 2>&1 | tee $watchfile
