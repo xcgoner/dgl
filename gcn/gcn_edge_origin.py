@@ -14,7 +14,6 @@ import dgl.function as fn
 from dgl import DGLGraph
 from dgl.data import register_data_args, load_data
 
-
 class GCNLayer(gluon.Block):
     def __init__(self,
                  g,
@@ -34,12 +33,37 @@ class GCNLayer(gluon.Block):
         accum = self.dense(accum * self.g.ndata['in_norm'])
         if self.dropout:
             accum = mx.nd.Dropout(accum, p=self.dropout)
-        h = self.g.ndata.pop('h')
-        h = mx.nd.concat(h / self.g.ndata['out_norm'], accum, dim=1)
+        h = accum
         return h
 
+class EGCNLayer(gluon.Block):
+    def __init__(self,
+                 g,
+                 out_feats,
+                 activation,
+                 dropout):
+        super(EGCNLayer, self).__init__()
+        self.g = g
+        self.dense = gluon.nn.Dense(out_feats, activation)
+        self.edense = gluon.nn.Dense(int(out_feats), 'relu')
+        self.dropout = dropout
 
-class GCN(gluon.Block):
+    def forward(self, h):
+        self.g.ndata['h'] = h
+        # somewhat hacky, who cares
+        # egcn_message = lambda edges: {'m' : mx.nd.Dropout(self.edense(mx.nd.concat(edges.dst['h'], edges.src['h'], dim=1)), p=self.dropout)}
+        egcn_message = lambda edges: {'m' : mx.nd.concat(mx.nd.Dropout(self.edense(mx.nd.concat(edges.dst['h'], edges.src['h'], dim=1)), p=self.dropout), edges.src['h'], dim=1) * edges.src['out_norm']}
+        # egcn_message = lambda edges: {'m' : mx.nd.concat(mx.nd.Dropout(self.edense(mx.nd.subtract(edges.dst['h'], edges.src['h'])), p=self.dropout), edges.src['h'], dim=1)}
+        self.g.update_all(egcn_message, 
+                          fn.sum(msg='m', out='accum'))
+        accum = self.g.ndata.pop('accum')
+        accum = self.dense(accum * self.g.ndata['in_norm'])
+        if self.dropout:
+            accum = mx.nd.Dropout(accum, p=self.dropout)
+        return accum
+
+
+class EGCN(gluon.Block):
     def __init__(self,
                  g,
                  n_hidden,
@@ -47,20 +71,20 @@ class GCN(gluon.Block):
                  n_layers,
                  activation,
                  dropout):
-        super(GCN, self).__init__()
-        self.inp_layer = gluon.nn.Dense(n_hidden, activation)
+        super(EGCN, self).__init__()
+        # self.inp_layer = gluon.nn.Dense(n_hidden, activation)
         self.dropout = dropout
         self.layers = gluon.nn.Sequential()
-        for i in range(n_layers):
-            self.layers.add(GCNLayer(g, n_hidden, activation, dropout))
-        self.out_layer = gluon.nn.Dense(n_classes)
+        for i in range(n_layers-1):
+            self.layers.add(EGCNLayer(g, n_hidden, activation, dropout))
+        self.out_layer = EGCNLayer(g, n_classes, None, 0)
 
 
     def forward(self, features):
-        emb_inp = [features, self.inp_layer(features)]
-        if self.dropout:
-            emb_inp[-1] = mx.nd.Dropout(emb_inp[-1], p=self.dropout)
-        h = mx.nd.concat(*emb_inp, dim=1)
+        # h = self.inp_layer(features)
+        # if self.dropout:
+        #     h = mx.nd.Dropout(h, p=self.dropout)
+        h = features
         for layer in self.layers:
             h = layer(h)
         h = self.out_layer(h)
@@ -126,22 +150,26 @@ def main(args):
     # normalization
     in_degs = g.in_degrees().astype('float32')
     out_degs = g.out_degrees().astype('float32')
-    in_norm = mx.nd.power(in_degs, -0.5)
-    out_norm = mx.nd.power(out_degs, -0.5)
+    if args.normalization == "sym":
+        in_norm = mx.nd.power(in_degs, -0.5)
+        out_norm = mx.nd.power(out_degs, -0.5)
+    else:
+        in_norm = mx.nd.power(in_degs, -1)
+        out_norm = mx.nd.ones_like(out_degs)
     if cuda:
         in_norm = in_norm.as_in_context(ctx)
         out_norm = out_norm.as_in_context(ctx)
     g.ndata['in_norm'] = mx.nd.expand_dims(in_norm, 1)
     g.ndata['out_norm'] = mx.nd.expand_dims(out_norm, 1)
 
-    model = GCN(g,
+    model = EGCN(g,
                 args.n_hidden,
                 n_classes,
                 args.n_layers,
                 'relu',
                 args.dropout,
                 )
-    model.initialize(ctx=ctx)
+    model.initialize(mx.init.Xavier(), ctx=ctx)
     n_train_samples = train_mask.sum().asscalar()
     loss_fcn = gluon.loss.SoftmaxCELoss()
 
@@ -204,7 +232,7 @@ if __name__ == '__main__':
             help="Weight for L2 loss")
     parser.add_argument("--save", type=str,
             help="path for the best model")     
-    parser.add_argument("--seed", type=int, default=733
+    parser.add_argument("--seed", type=int, default=733,
             help="random seed")  
     args = parser.parse_args()
 

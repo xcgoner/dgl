@@ -34,8 +34,7 @@ class GCNLayer(gluon.Block):
         accum = self.dense(accum * self.g.ndata['in_norm'])
         if self.dropout:
             accum = mx.nd.Dropout(accum, p=self.dropout)
-        h = self.g.ndata.pop('h')
-        h = mx.nd.concat(h / self.g.ndata['out_norm'], accum, dim=1)
+        h = accum
         return h
 
 
@@ -48,19 +47,15 @@ class GCN(gluon.Block):
                  activation,
                  dropout):
         super(GCN, self).__init__()
-        self.inp_layer = gluon.nn.Dense(n_hidden, activation)
         self.dropout = dropout
         self.layers = gluon.nn.Sequential()
-        for i in range(n_layers):
+        for i in range(n_layers-1):
             self.layers.add(GCNLayer(g, n_hidden, activation, dropout))
-        self.out_layer = gluon.nn.Dense(n_classes)
+        self.out_layer = GCNLayer(g, n_classes, None, 0)
 
 
     def forward(self, features):
-        emb_inp = [features, self.inp_layer(features)]
-        if self.dropout:
-            emb_inp[-1] = mx.nd.Dropout(emb_inp[-1], p=self.dropout)
-        h = mx.nd.concat(*emb_inp, dim=1)
+        h = features
         for layer in self.layers:
             h = layer(h)
         h = self.out_layer(h)
@@ -141,7 +136,7 @@ def main(args):
                 'relu',
                 args.dropout,
                 )
-    model.initialize(ctx=ctx)
+    model.initialize(mx.init.Xavier(), ctx=ctx)
     n_train_samples = train_mask.sum().asscalar()
     loss_fcn = gluon.loss.SoftmaxCELoss()
 
@@ -204,7 +199,7 @@ if __name__ == '__main__':
             help="Weight for L2 loss")
     parser.add_argument("--save", type=str,
             help="path for the best model")     
-    parser.add_argument("--seed", type=int, default=733
+    parser.add_argument("--seed", type=int, default=733,
             help="random seed")  
     args = parser.parse_args()
 

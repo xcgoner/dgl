@@ -28,4 +28,4 @@ watchfile=$basename.log
 modelfile=$basename.params
 
 
-DGLBACKEND=mxnet python /homes/cx2/gcn/dgl-gcn/gcn/gcn_concat.py --save $modelfile --dataset "cora" --lr 0.01 --n-epochs 200 --n-layers 2 --n-hidden 64 --normalization 'sym' --self-loop 2>&1 | tee $watchfile
+DGLBACKEND=mxnet python /homes/cx2/gcn/dgl-gcn/gcn/gcn_origin.py --save $modelfile --dataset "cora" --lr 0.01 --n-epochs 200 --n-layers 2 --n-hidden 64 --normalization 'sym' --self-loop 2>&1 | tee $watchfile
