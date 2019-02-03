@@ -125,8 +125,12 @@ def main(args):
     # normalization
     in_degs = g.in_degrees().astype('float32')
     out_degs = g.out_degrees().astype('float32')
-    in_norm = mx.nd.power(in_degs, -0.5)
-    out_norm = mx.nd.power(out_degs, -0.5)
+    if args.normalization == "sym":
+        in_norm = mx.nd.power(in_degs, -0.5)
+        out_norm = mx.nd.power(out_degs, -0.5)
+    else:
+        in_norm = mx.nd.power(in_degs, -1)
+        out_norm = mx.nd.ones_like(out_degs)
     if cuda:
         in_norm = in_norm.as_in_context(ctx)
         out_norm = out_norm.as_in_context(ctx)

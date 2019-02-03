@@ -15,7 +15,7 @@ from dgl import DGLGraph
 from dgl.data import register_data_args, load_data
 
 
-class GCNLayer(gluon.Block):
+class GCNLayer(gluon.HybridBlock):
     def __init__(self,
                  g,
                  out_feats,
@@ -26,19 +26,19 @@ class GCNLayer(gluon.Block):
         self.dense = gluon.nn.Dense(out_feats, activation)
         self.dropout = dropout
 
-    def forward(self, h):
+    def hybrid_forward(self, F, h):
         self.g.ndata['h'] = h * self.g.ndata['out_norm']
         self.g.update_all(fn.copy_src(src='h', out='m'),
                           fn.sum(msg='m', out='accum'))
         accum = self.g.ndata.pop('accum')
         accum = self.dense(accum * self.g.ndata['in_norm'])
         if self.dropout:
-            accum = mx.nd.Dropout(accum, p=self.dropout)
+            accum = F.Dropout(accum, p=self.dropout)
         h = accum
         return h
 
 
-class GCN(gluon.Block):
+class GCN(gluon.HybridBlock):
     def __init__(self,
                  g,
                  n_hidden,
@@ -48,18 +48,22 @@ class GCN(gluon.Block):
                  dropout):
         super(GCN, self).__init__()
         self.dropout = dropout
-        self.layers = gluon.nn.Sequential()
-        for i in range(n_layers-1):
+        self.in_layer = gluon.nn.Dense(n_hidden, activation)
+        self.layers = gluon.nn.HybridSequential()
+        for i in range(n_layers):
             self.layers.add(GCNLayer(g, n_hidden, activation, dropout))
-        self.out_layer = GCNLayer(g, n_classes, None, 0)
+        self.out_layer = gluon.nn.Dense(n_classes, None)
 
 
-    def forward(self, features):
-        h = features
+    def hybrid_forward(self, F, features):
+        x = self.in_layer(features)
+        if self.dropout:
+            x = F.Dropout(x, p=self.dropout)
+        Px = x
         for layer in self.layers:
-            h = layer(h)
-        h = self.out_layer(h)
-        return h
+            Px = layer(Px)
+        h = self.out_layer(Px)
+        return h, x, Px
 
 
 def evaluate(model, features, labels, mask):
@@ -116,6 +120,9 @@ def main(args):
     val_mask = val_mask.as_in_context(ctx)
     test_mask = test_mask.as_in_context(ctx)
 
+    # print(features.max().asscalar(), flush=True)
+    # print(features.min().asscalar(), flush=True)
+
     # create GCN model
     g = DGLGraph(data.graph)
     # normalization
@@ -137,10 +144,11 @@ def main(args):
                 args.n_hidden,
                 n_classes,
                 args.n_layers,
-                'relu',
+                'tanh',
                 args.dropout,
                 )
     model.initialize(mx.init.Xavier(), ctx=ctx)
+    model.hybridize()
     n_train_samples = train_mask.sum().asscalar()
     loss_fcn = gluon.loss.SoftmaxCELoss()
 
@@ -157,9 +165,10 @@ def main(args):
             t0 = time.time()
         # forward
         with mx.autograd.record():
-            pred = model(features)
+            pred, x, Px = model(features)
+            x_diff = x - Px
             loss = loss_fcn(pred, labels, mx.nd.expand_dims(train_mask, 1))
-            loss = loss.sum() / n_train_samples
+            loss = loss.sum() / n_train_samples + x_diff.square().mean() * 0.01
 
         loss.backward()
         trainer.step(batch_size=1)

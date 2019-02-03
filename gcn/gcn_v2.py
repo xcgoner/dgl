@@ -48,14 +48,17 @@ class GCN(gluon.Block):
                  dropout):
         super(GCN, self).__init__()
         self.dropout = dropout
+        self.in_layer = gluon.nn.Dense(n_hidden, activation)
         self.layers = gluon.nn.Sequential()
-        for i in range(n_layers-1):
+        for i in range(n_layers):
             self.layers.add(GCNLayer(g, n_hidden, activation, dropout))
-        self.out_layer = GCNLayer(g, n_classes, None, 0)
+        self.out_layer = gluon.nn.Dense(n_classes, None)
 
 
     def forward(self, features):
-        h = features
+        h = self.in_layer(features)
+        if self.dropout:
+            h = mx.nd.Dropout(h, p=self.dropout)
         for layer in self.layers:
             h = layer(h)
         h = self.out_layer(h)
@@ -116,6 +119,9 @@ def main(args):
     val_mask = val_mask.as_in_context(ctx)
     test_mask = test_mask.as_in_context(ctx)
 
+    # print(features.max().asscalar(), flush=True)
+    # print(features.min().asscalar(), flush=True)
+
     # create GCN model
     g = DGLGraph(data.graph)
     # normalization
@@ -137,7 +143,7 @@ def main(args):
                 args.n_hidden,
                 n_classes,
                 args.n_layers,
-                'relu',
+                'tanh',
                 args.dropout,
                 )
     model.initialize(mx.init.Xavier(), ctx=ctx)
