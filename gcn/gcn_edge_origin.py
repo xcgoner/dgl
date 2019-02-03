@@ -36,6 +36,28 @@ class GCNLayer(gluon.Block):
         h = accum
         return h
 
+class EdgeEmbeddingLayer(gluon.Block):
+    def __init__(self,
+                 out_feats,
+                 n_hidden,
+                 n_layers,
+                 activation,
+                 dropout):
+        super(EdgeEmbeddingLayer, self).__init__()
+        # self.layers = []
+        self.layers = gluon.nn.Sequential()
+        for i in range(n_layers-1):
+            self.layers.add(gluon.nn.Dense(n_hidden, activation))
+        self.layers.add(gluon.nn.Dense(out_feats, activation))
+        self.dropout = dropout
+
+    def forward(self, h):
+        for layer in self.layers:
+            h = layer(h)
+            if self.dropout:
+                h = mx.nd.Dropout(h, p=self.dropout)
+        return h
+
 class EGCNLayer(gluon.Block):
     def __init__(self,
                  g,
@@ -46,7 +68,7 @@ class EGCNLayer(gluon.Block):
         super(EGCNLayer, self).__init__()
         self.g = g
         self.dense = gluon.nn.Dense(out_feats, activation)
-        self.edense = gluon.nn.Dense(int(out_feats), 'tanh')
+        self.edense = EdgeEmbeddingLayer(out_feats, out_feats, 3, 'tanh', dropout)
         self.dropout = dropout
         self.self_loop = self_loop
         if self_loop:
@@ -55,7 +77,7 @@ class EGCNLayer(gluon.Block):
     def forward(self, h):
         self.g.ndata['h'] = h
         # somewhat hacky, who cares
-        egcn_message = lambda edges: {'m' : mx.nd.Dropout(self.edense(mx.nd.concat(edges.dst['h'], edges.src['h'], dim=1) * edges.src['out_norm']), p=self.dropout)}
+        egcn_message = lambda edges: {'m' : self.edense(mx.nd.concat(edges.dst['h'], edges.src['h'], dim=1) * edges.src['out_norm'])}
         # egcn_message = lambda edges: {'m' : mx.nd.concat(mx.nd.Dropout(self.edense(mx.nd.concat(edges.dst['h'], edges.src['h'], dim=1) * edges.src['out_norm']), p=self.dropout), edges.src['h'] * edges.src['out_norm'], dim=1)}
         # egcn_message = lambda edges: {'m' : mx.nd.concat(mx.nd.Dropout(self.edense(mx.nd.subtract(edges.dst['h'], edges.src['h'])), p=self.dropout), edges.src['h'], dim=1)}
         self.g.update_all(egcn_message, 
@@ -85,11 +107,10 @@ class EGCN(gluon.Block):
         # self.inp_layer = gluon.nn.Dense(n_hidden, activation)
         self.dropout = dropout
         self.layers = gluon.nn.Sequential()
-        for i in range(n_layers-1):
+        for i in range(n_layers):
             self.layers.add(EGCNLayer(g, n_hidden, activation, dropout, self_loop))
-        self.out_layer = EGCNLayer(g, n_classes, None, 0, self_loop)
-
-
+        # self.out_layer = EGCNLayer(g, n_classes, None, 0, self_loop)
+        self.out_layer = gluon.nn.Dense(n_classes)
 
     def forward(self, features):
         # h = self.inp_layer(features)
@@ -121,8 +142,8 @@ def main(args):
     # load and preprocess dataset
     data = load_data(args)
 
-    if args.self_loop:
-        data.graph.add_edges_from([(i,i) for i in range(len(data.graph))])
+    # if args.self_loop:
+    #     data.graph.add_edges_from([(i,i) for i in range(len(data.graph))])
 
     features = mx.nd.array(data.features)
     labels = mx.nd.array(data.labels)
